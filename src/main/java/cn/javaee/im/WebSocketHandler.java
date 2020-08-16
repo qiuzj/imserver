@@ -1,5 +1,6 @@
 package cn.javaee.im;
 
+import cn.javaee.im.command.OnlineCommand;
 import cn.javaee.im.util.AttributeUtils;
 import cn.javaee.im.util.JsonUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -34,11 +35,20 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
                 case 0: // 登录
                     String username = (String) messageMap.get("username");
                     LOGGER.info("[LoginRequest] user: {}", username);
-                    channelGroup.add(ctx.channel());
-                    AttributeUtils.setUsername(ctx, username);
 
+                    // 加入聊天室
+                    channelGroup.add(ctx.channel());
+                    // Channel关联用户名
+                    AttributeUtils.setUsername(ctx, username);
+                    // 加入用户在线列表
+                    OnlineManager.getInstance().online(new OnlineUser(username));
+
+                    // 请求响应
                     ctx.writeAndFlush(new TextWebSocketFrame(messageString));
                     LOGGER.info("[LoginResponse] message: {}", messageString);
+
+                    // 在线用户列表更新通知
+                    onlineChangeNotify();
                     break;
                 case 1: // 客户端发送消息
                     String message = (String) messageMap.get("message");
@@ -65,12 +75,35 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
         LOGGER.info("[channelClosed] remote address is {} ", ctx.channel().remoteAddress());
+        logout(ctx);
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         LOGGER.error("process error. user is {},  channel info {}", AttributeUtils.getUsername(ctx), ctx.channel(), cause);
-        channelGroup.remove(ctx.channel());
+        logout(ctx);
         ctx.channel().close();
+    }
+
+    /**
+     * 用户退出或离线
+     *
+     * @param ctx
+     */
+    private void logout(ChannelHandlerContext ctx) {
+        // 退出聊天室
+        channelGroup.remove(ctx.channel());
+        // 退出用户在线列表
+        OnlineManager.getInstance().offline(AttributeUtils.getUsername(ctx));
+        // 在线用户列表更新通知
+        onlineChangeNotify();
+    }
+
+    /**
+     * 在线用户列表更新通知
+     */
+    private void onlineChangeNotify() {
+        OnlineCommand command = new OnlineCommand(OnlineManager.getInstance().all());
+        channelGroup.writeAndFlush(new TextWebSocketFrame(JsonUtils.toJSONString(command)));
     }
 }
