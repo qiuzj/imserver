@@ -1,4 +1,4 @@
-package cn.javaee.im;
+package cn.javaee.im.room;
 
 import lombok.Getter;
 import lombok.Setter;

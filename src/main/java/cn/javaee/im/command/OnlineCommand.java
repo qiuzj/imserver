@@ -1,6 +1,6 @@
 package cn.javaee.im.command;
 
-import cn.javaee.im.OnlineUser;
+import cn.javaee.im.room.OnlineUser;
 
 import java.util.Collection;
 
@@ -8,7 +8,7 @@ public class OnlineCommand extends BaseCommand {
     private Collection<OnlineUser> userList;
 
     public OnlineCommand(Collection<OnlineUser> userList) {
-        setType(Command.ONLINE);
+        setType(Command.LIST_CHAT_ROOM_USER);
         this.userList = userList;
     }
 
