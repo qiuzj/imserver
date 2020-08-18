@@ -5,7 +5,6 @@ import cn.javaee.im.command.Command;
 import cn.javaee.im.command.OnlineCommand;
 import cn.javaee.im.room.ChatRoomManager;
 import cn.javaee.im.room.OnlineManager;
-import cn.javaee.im.room.OnlineUser;
 import cn.javaee.im.util.AttributeUtils;
 import cn.javaee.im.util.JsonUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -14,8 +13,10 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.group.ChannelGroup;
+import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketFrame;
+import io.netty.util.concurrent.ImmediateEventExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,7 +27,7 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
 
     public static final Logger LOGGER = LoggerFactory.getLogger(WebSocketHandler.class);
 
-//    public static final ChannelGroup channelGroup = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
+    public static final ChannelGroup allChannelGroup = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, WebSocketFrame frame) throws Exception {
@@ -43,6 +44,8 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
                     username = (String) messageMap.get("username");
                     LOGGER.info("[LoginRequest] user: {}", username);
 
+                    // 当前Channel加入通道组
+                    allChannelGroup.add(ctx.channel());
                     // Channel关联用户名
                     AttributeUtils.setUsername(ctx.channel(), username);
 
@@ -72,15 +75,34 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
                     // 加入聊天室
                     ChatRoomManager.getInstance().join(ctx.channel(), roomName);
                     // 加入用户在线列表
-                    username = AttributeUtils.getUsername(ctx.channel());
-                    OnlineManager.getInstance().online(roomName, new OnlineUser(username));
+                    OnlineManager.getInstance().online(ctx.channel(), roomName);
+                    // Channel关联聊天室
+                    AttributeUtils.setRoomName(ctx.channel(), roomName);
 
                     // 请求响应
                     ctx.writeAndFlush(new TextWebSocketFrame(messageString));
                     LOGGER.info("[JoinChatRoomResponse] message: {}", messageString);
 
-                    // 在线用户列表更新通知
-                    onlineChangeNotify(ctx.channel(), roomName);
+                    // 用户进出聊天室信息广播
+                    changeNotify(roomName);
+                    break;
+                case Command.EXIT_CHAT_ROOM: // 退出聊天室
+                    roomName = (String) messageMap.get("roomName");
+                    LOGGER.info("[ExitChatRoomRequest] roomName: {}", roomName);
+
+                    // 退出聊天室
+                    ChatRoomManager.getInstance().exit(ctx.channel(), roomName);
+                    // 退出用户在线列表
+                    OnlineManager.getInstance().offline(ctx.channel(), roomName);
+                    // 清空Channel关联聊天室
+                    AttributeUtils.setRoomName(ctx.channel(), null);
+
+                    // 请求响应
+                    ctx.writeAndFlush(new TextWebSocketFrame(messageString));
+                    LOGGER.info("[ExitChatRoomResponse] message: {}", messageString);
+
+                    // 用户进出聊天室信息广播
+                    changeNotify(roomName);
                     break;
                 default:
                     break;
@@ -88,6 +110,22 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
         } else {
             LOGGER.error("not support frame type: {}", frame);
         }
+    }
+
+    private void changeNotify(String roomName) {
+        // 在线用户列表更新通知
+        onlineChangeNotify(roomName);
+        // 聊天室列表更新通知
+        roomListChangeNotify();
+    }
+
+    /**
+     * 聊天室列表更新通知
+     */
+    private void roomListChangeNotify() {
+        ChatRoomListCommand command = new ChatRoomListCommand(ChatRoomManager.getInstance().list());
+        String msg = JsonUtils.toJSONString(command);
+        allChannelGroup.writeAndFlush(new TextWebSocketFrame(msg));
     }
 
     @Override
@@ -116,22 +154,24 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
      */
     private void logout(ChannelHandlerContext ctx) {
         Channel channel = ctx.channel();
-        String username = AttributeUtils.getUsername(channel);
+//        String username = AttributeUtils.getUsername(channel);
         String roomName = AttributeUtils.getRoomName(channel);
 
+        // 当前Channel退出通道组
+        allChannelGroup.remove(ctx.channel());
         // 退出聊天室
         ChatRoomManager.getInstance().exit(channel, roomName);
         // 退出用户在线列表
-        OnlineManager.getInstance().offline(roomName, username);
+        OnlineManager.getInstance().offline(channel, roomName);
         // 在线用户列表更新通知
-        onlineChangeNotify(channel, roomName);
+        onlineChangeNotify(roomName);
     }
 
     /**
      * 在线用户列表更新通知
      */
-    private void onlineChangeNotify(Channel channel, String roomName) {
-        OnlineCommand command = new OnlineCommand(OnlineManager.getInstance().all(roomName));
+    private void onlineChangeNotify(String roomName) {
+        OnlineCommand command = new OnlineCommand(roomName, OnlineManager.getInstance().all(roomName));
 
         ChannelGroup channelGroup = ChatRoomManager.getInstance().getChannelGroup(roomName);
         channelGroup.writeAndFlush(new TextWebSocketFrame(JsonUtils.toJSONString(command)));

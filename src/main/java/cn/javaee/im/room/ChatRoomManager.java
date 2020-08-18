@@ -1,5 +1,6 @@
 package cn.javaee.im.room;
 
+import cn.javaee.im.util.AttributeUtils;
 import io.netty.channel.Channel;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
@@ -16,8 +17,14 @@ public class ChatRoomManager {
 
     private static final ChatRoomManager instance = new ChatRoomManager();
 
+    /**
+     * 聊天室Channel组，用于组内广播消息. 格式：<聊天室名称, ChannelGroup>
+     */
     private ConcurrentMap<String, ChannelGroup> roomGroupMap = new ConcurrentHashMap<>();
 
+    /**
+     * 所有聊天室基础信息. 格式：<聊天室名称, 聊天室对象>
+     */
     private ConcurrentMap<String, ChatRoom> roomMap = new ConcurrentHashMap<>();
 
     {
@@ -38,17 +45,34 @@ public class ChatRoomManager {
      * @param roomName
      */
     public void join(Channel channel, String roomName) {
+        // 退出原来的聊天室
+//        String oldRoomName = AttributeUtils.getRoomName(channel);
+//        if (oldRoomName != null && roomGroupMap.containsKey(oldRoomName)) {
+//            roomGroupMap.get(oldRoomName).remove(channel);
+//            updateOnlineCount(oldRoomName);
+//        }
+
+        // 加入新的聊天室
         if (!roomGroupMap.containsKey(roomName)) {
             ChannelGroup channelGroup = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
             roomGroupMap.putIfAbsent(roomName, channelGroup);
         }
         roomGroupMap.get(roomName).add(channel);
 
-        // 在线人数加1
+        // 在线人数更新
+        updateOnlineCount(roomName);
+    }
+
+    /**
+     * 在线人数更新
+     *
+     * @param roomName
+     */
+    private void updateOnlineCount(String roomName) {
         if (roomMap.containsKey(roomName)) {
             ChatRoom room = roomMap.get(roomName);
             synchronized (room) {
-                room.setOnlineNum(room.getOnlineNum() + 1);
+                room.setOnlineNum(roomGroupMap.get(roomName).size());
             }
         }
     }
@@ -64,13 +88,8 @@ public class ChatRoomManager {
             roomGroupMap.get(roomName).remove(channel);
         }
 
-        // 在线人数减1
-        if (roomMap.containsKey(roomName)) {
-            ChatRoom room = roomMap.get(roomName);
-            synchronized (room) {
-                room.setOnlineNum(room.getOnlineNum() - 1);
-            }
-        }
+        // 在线人数更新
+        updateOnlineCount(roomName);
     }
 
     /**
