@@ -11,15 +11,19 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
+import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import java.util.Date;
 
+@Component
 public class IMApplication {
 
 	/** WebSocket端口号 */
 	private static final int WEBSOCKET_PORT = 8082;
 
-	public static void main(String[] args) {
+	@PostConstruct
+	public void startup() {
 		IMApplication application = new IMApplication();
 		application.startNetty();
 	}

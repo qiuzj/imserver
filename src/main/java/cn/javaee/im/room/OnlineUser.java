@@ -1,8 +1,5 @@
 package cn.javaee.im.room;
 
-import lombok.Getter;
-import lombok.Setter;
-
 public class OnlineUser {
     private Long id;
     private String username;
