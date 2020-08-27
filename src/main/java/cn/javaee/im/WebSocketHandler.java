@@ -6,6 +6,7 @@ import cn.javaee.im.command.OnlineCommand;
 import cn.javaee.im.room.ChatRoomManager;
 import cn.javaee.im.room.OnlineManager;
 import cn.javaee.im.util.AttributeUtils;
+import cn.javaee.im.util.AuthUtils;
 import cn.javaee.im.util.JsonUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.netty.channel.Channel;
@@ -42,7 +43,13 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
             switch ((Integer) messageMap.get("type")) {
                 case 0: // 登录
                     username = (String) messageMap.get("username");
-                    LOGGER.info("[LoginRequest] user: {}", username);
+                    String loginToken = (String) messageMap.get("loginToken");
+                    LOGGER.info("[LoginRequest] user: {}, loginToken: {}", username, loginToken);
+
+                    // 验证登录token
+                    if (!checkToken(ctx, messageString, username, loginToken)) {
+                        break;
+                    }
 
                     // 当前Channel加入通道组
                     allChannelGroup.add(ctx.channel());
@@ -110,6 +117,25 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
         } else {
             LOGGER.error("not support frame type: {}", frame);
         }
+    }
+
+    private boolean checkToken(ChannelHandlerContext ctx, String messageString, String username, String loginToken) {
+        boolean success = false;
+        try {
+            String authUsername = AuthUtils.checkToken(loginToken);
+            if (username.equals(authUsername)) {
+                success = true;
+                LOGGER.info("[checkTokenSuccess] username: {}", authUsername);
+            }
+        } catch (Exception e) {
+            LOGGER.error("[checkTokenError] request: {}", messageString, e);
+        }
+        // 如果token验证失败，或者用户名不一致，则关闭连接
+        if (!success) {
+            LOGGER.warn("[checkTokenFailed] username: {}, loginToken: {}", username, loginToken);
+            ctx.close();
+        }
+        return success;
     }
 
     private void changeNotify(String roomName) {
